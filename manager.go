@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -12,18 +13,46 @@ var (
 	webScoketUpgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		CheckOrigin:     checkOrgin,
 	}
 )
 
 type Manager struct {
 	clients ClientList
 	sync.RWMutex
+
+	handlers map[string]EventHandler
 }
 
 func NewManager() *Manager {
-	return &Manager{
-		clients: make(ClientList),
+	m := &Manager{
+		clients:  make(ClientList),
+		handlers: make(map[string]EventHandler),
 	}
+	m.setupEventhandlers()
+	return m
+}
+
+func (m *Manager) setupEventhandlers() {
+	m.handlers[EventSendMessage] = SendMessage
+}
+
+func SendMessage(event Event, c *Client) error {
+	log.Println(event)
+	return nil
+}
+
+func (m *Manager) routeEvent(event Event, c *Client) error {
+	// Check the event type
+	if handler, ok := m.handlers[event.Type]; ok {
+		if err := handler(event, c); err != nil {
+			return err
+		}
+	} else {
+		return errors.New("there is no such event type")
+	}
+
+	return nil
 }
 
 func (m *Manager) serveWS(w http.ResponseWriter, r *http.Request) {
@@ -60,4 +89,15 @@ func (m *Manager) removeClient(client *Client) {
 		delete(m.clients, client)
 	}
 
+}
+
+func checkOrgin(r *http.Request) bool {
+	orgin := r.Header.Get("Origin")
+
+	switch orgin {
+	case "http://localhost:8080":
+		return true
+	default:
+		return false
+	}
 }
