@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -41,10 +42,49 @@ func NewManager(ctx context.Context) *Manager {
 
 func (m *Manager) setupEventHandlers() {
 	m.handlers[EventSendMessage] = SendMessage
+	m.handlers[EventChangeRoom] = ChatRoomHandler
+}
+
+func ChatRoomHandler(event Event, c *Client) error {
+	var changeRoom ChangeRoomEvent
+
+	if err := json.Unmarshal(event.Payload, &changeRoom); err != nil {
+		return fmt.Errorf("bad payload in request %v", err)
+	}
+
+	c.chatroom = changeRoom.Name
+
+	return nil
 }
 
 func SendMessage(event Event, c *Client) error {
-	log.Println(event)
+	var chatEvent SendMessageEvent
+
+	if err := json.Unmarshal(event.Payload, &chatEvent); err != nil {
+		return fmt.Errorf("bad payload in request %v", err)
+	}
+
+	var broadMessage NewMessageEvent
+	broadMessage.Sent = time.Now()
+	broadMessage.Message = chatEvent.Message
+	broadMessage.From = chatEvent.From
+
+	data, err := json.Marshal(&broadMessage)
+	if err != nil {
+		return fmt.Errorf("failed to marshal broadcast message: %v", err)
+	}
+
+	outgoingEvent := Event{
+		Payload: data,
+		Type:    EventNewMessage,
+	}
+
+	for client := range c.manager.clients {
+		if client.chatroom == c.chatroom {
+			client.egress <- outgoingEvent
+		}
+	}
+
 	return nil
 }
 

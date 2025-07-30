@@ -50,13 +50,52 @@
     </div>
 
     <script>
-      var selectedChat = "genaral";
+      var selectedChat = "general";
 
       class Event {
         constructor(type, payload) {
           this.type = type;
           this.payload = payload;
         }
+      }
+
+      class SendMessageEvent {
+        constructor(message, from) {
+          this.message = message;
+          this.from = from;
+        }
+      }
+
+      class NewMessageEvent {
+        constructor(message, from, sent) {
+          this.message = message;
+          this.from = from;
+          this.sent = sent;
+        }
+      }
+
+      class ChangeChatRoomEvent {
+        constructor(name) {
+          this.name = name;
+        }
+      }
+
+      function changeChatroom() {
+        var newChat = document.getElementById("chatroom");
+        if (newChat != null && newChat.value != selectedChat) {
+          selectedChat = newChat.value;
+
+          header = document.getElementById("chat-header").innerHTML =
+            "Currently in chatroom: " + selectedChat;
+
+          let changeEvent = new ChangeChatRoomEvent(selectedChat);
+
+          sendEvent("change_room", changeEvent);
+          textArea = document.getElementById("chatmessages");
+          textArea.innerHTML = `You changed room into: ${selectedChat}`;
+        }
+
+        return false;
       }
 
       function routeEvent(event) {
@@ -66,12 +105,28 @@
 
         switch (event.type) {
           case "new_message":
-            console.log("new_message");
+            const messageEvent = Object.assign(
+              new NewMessageEvent(),
+              event.payload
+            );
+
+            appendChatMessage(messageEvent);
             break;
           default:
-            alert("unseported message type");
+            alert("unreported message type");
             break;
         }
+      }
+
+      function appendChatMessage(messageEvent) {
+        var date = new Date(messageEvent.sent);
+        const formattedMsg = `${date.toLocaleString()}: ${
+          messageEvent.message
+        }`;
+
+        textArea = document.getElementById("chatmessages");
+        textArea.innerHTML = textArea.innerHTML + "\n" + formattedMsg;
+        textArea.scrollTop = textArea.scrollHeight;
       }
 
       function sendEvent(eventName, payload) {
@@ -80,18 +135,11 @@
         conn.send(JSON.stringify(event));
       }
 
-      function changeChatroom() {
-        var newchat = document.getElementById("chatroom");
-        if (newchat != null && newchat != selectedChat) {
-          console.log(newchat);
-        }
-        return false;
-      }
-
       function sendMessage() {
         var newmessage = document.getElementById("message");
         if (newmessage != null) {
-          sendEvent("send_message", newmessage.value);
+          let outgoingEvent = new SendMessageEvent(newmessage.value, "mehari");
+          sendEvent("send_message", outgoingEvent);
         }
         return false;
       }
