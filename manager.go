@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 var (
-	webScoketUpgrader = websocket.Upgrader{
+	webSocketUpgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin:     checkOrgin,
@@ -21,19 +24,22 @@ type Manager struct {
 	clients ClientList
 	sync.RWMutex
 
+	otps RetentionMap
+
 	handlers map[string]EventHandler
 }
 
-func NewManager() *Manager {
+func NewManager(ctx context.Context) *Manager {
 	m := &Manager{
 		clients:  make(ClientList),
 		handlers: make(map[string]EventHandler),
+		otps:     NewRetentionMap(ctx, 5*time.Second),
 	}
-	m.setupEventhandlers()
+	m.setupEventHandlers()
 	return m
 }
 
-func (m *Manager) setupEventhandlers() {
+func (m *Manager) setupEventHandlers() {
 	m.handlers[EventSendMessage] = SendMessage
 }
 
@@ -56,10 +62,21 @@ func (m *Manager) routeEvent(event Event, c *Client) error {
 }
 
 func (m *Manager) serveWS(w http.ResponseWriter, r *http.Request) {
+	otp := r.URL.Query().Get("otp")
+	if otp == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if !m.otps.VerifyOTP(otp) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	log.Println("new connection")
 
 	// upgrade regular http connection into websocket
-	conn, err := webScoketUpgrader.Upgrade(w, r, nil)
+	conn, err := webSocketUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
@@ -72,6 +89,43 @@ func (m *Manager) serveWS(w http.ResponseWriter, r *http.Request) {
 	// Start client process
 	go client.readMessages()
 	go client.writeMessages()
+}
+
+func (m *Manager) login(w http.ResponseWriter, r *http.Request) {
+	type userLoginRequest struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	var req userLoginRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Username == "mehari" && req.Password == "777" {
+		type response struct {
+			OTP string `json:"otp"`
+		}
+
+		otp := m.otps.NewOTP()
+
+		resp := response{
+			OTP: otp.Key,
+		}
+
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+		return
+	}
+
+	w.WriteHeader(http.StatusUnauthorized)
 }
 
 func (m *Manager) addClient(client *Client) {
