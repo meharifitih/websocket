@@ -129,7 +129,7 @@
           console.log("supports websockets");
           // connect to ws
           conn = new WebSocket(
-            "ws://" + document.location.host + "/ws?otp=" + otp
+            "wss://" + document.location.host + "/ws?otp=" + otp
           );
 
           conn.onopen = function (evt) {
